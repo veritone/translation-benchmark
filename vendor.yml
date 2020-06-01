@@ -1,0 +1,19 @@
+vendors:
+- path: github.com/davecgh/go-spew
+  rev: d8f796af33cc11cb798c1aaeb27a4ebc5099927d
+- path: github.com/matryer/is
+  rev: 2eb2c933a79e268369b74caa16ac7f4b84bba0ab
+- path: github.com/pkg/errors
+  rev: 27936f6d90f9c8e1145f11ed52ffffbfdb9e0af7
+- path: github.com/pmezard/go-difflib
+  rev: 5d4384ee4fb2527b0a1256a821ebfc92f91efefc
+- path: github.com/stretchr/testify
+  rev: 34c6fa2dc70986bccbbffcc6130f6920a924b075
+- path: github.com/veritone/graphql
+  rev: 41fe1d0dadc2f3ffe3dd344be5b6ae308a69f785
+- path: github.com/veritone/src-training-workflow
+  rev: 2fd0a4fc30a0033e4b49dcf593feb374c31e9dcf
+- path: github.com/urfave/cli
+  rev: 8e01ec4cd3e2d84ab2fe90d8210528ffbb06d8ff
+- path: github.com/cpuguy83/go-md2man
+  rev: eda4fa589184806b8720ea3b9146491209877a10

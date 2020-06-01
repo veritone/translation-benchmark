@@ -1,0 +1,24 @@
+{
+    "engineId": "2517dfe9-b70d-43b1-bc1b-800618190d92",
+    "url": "github.com/veritone/translation-benchmark",
+    "category": "conductor",
+    "externalCalls": [],
+    "preferredInputFormat": "audio/mp4",
+    "supportedInputFormats":[
+      "video/mp4",
+      "audio/flac",
+      "audio/wav",
+      "audio/mp4",
+      "video/mpeg",
+      "video/quicktime",
+      "audio/mpeg"
+    ],
+    "outputFormats": [
+      "application/json"
+    ],
+    "clusterSize": "large",
+    "initialConcurrency": 50,
+    "maxConcurrency": 50,
+    "engineMode": "batch",
+    "isBenchmark": true
+  }
