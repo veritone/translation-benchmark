@@ -204,3 +204,13 @@ type Rectangle struct {
 	Width  float64 `json:"width,omitempty"`
 	Height float64 `json:"height,omitempty"`
 }
+type UpdateStatus struct {
+	Status         string `json:"status,omitempty"`
+	InfoMsg        string `json:"infoMsg,omitempty"`
+	FailureReason  string `json:"failureReason,omitempty"`
+	FailureMessage string `json:"failureMsg,omitempty"`
+}
+
+type Response struct {
+	EstimatedProcessingTimeInSeconds int `json:"estimatedProcessingTimeInSeconds,omitempty"`
+}

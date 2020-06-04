@@ -1,22 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
-	"log"
 	"math"
-	"net/http"
+	"os"
+	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
-	"time"
 
 	uuid "github.com/google/uuid"
-	"github.com/veritone/src-training-workflow/platform"
+	"github.com/pkg/errors"
 	"github.com/veritone/translation-benchmark/api"
-	models "github.com/veritone/translation-benchmark/api"
 )
 
 const (
@@ -28,6 +29,26 @@ var (
 	pollCount        = 360          // means polling every 40 seconds based on a 4 hr timeout
 	pollTimeoutInSec = int64(14400) // default timeout to 4 hours
 )
+
+type results struct {
+	Correct     int `json:"correct"`
+	Substituted int `json:"substituted"`
+	Deleted     int `json:"deleted"`
+	Inserted    int `json:"inserted"`
+	WordCount   int `json:"wordCount"`
+
+	Accuracy      float64 `json:"accuracy"`
+	Recall        float64 `json:"recall"`
+	Precision     float64 `json:"precision"`
+	WordErrorRate float64 `json:"wordErrorRate"`
+
+	Words []word `json:"words,omitempty"`
+}
+type word struct {
+	Action     string `json:"action,omitempty"`
+	Reference  string `json:"reference,omitempty"`
+	Hypothesis string `json:"hypothesis,omitempty"`
+}
 
 // invokeService is the core logic entrypoint for the engine. It will setup the payload data accordingly,
 // pass it to the benchmark engine, and generate the benchmark SDO
@@ -91,7 +112,7 @@ func processAssets(shutdownCtx context.Context, graphQLClient *api.PlatformGraph
 	tdoAssetMap, failedBaselineAssets := gatherBaselineAssets(shutdownCtx, graphQLClient, enginePayload.TaskID, tdoAssetMap, baselineAssetIDs)
 
 	// Benchmark service endpoint
-	url := myConfig.LocalServiceURL + "/benchmark"
+	// url := myConfig.LocalServiceURL + "/benchmark"
 	// Run the benchmark service individually for each TDO ID
 	for TDOID, tdoAssets := range tdoAssetMap {
 		fmt.Printf("[processAssets] Benchmarking assets for TDOID %s\n", TDOID)
@@ -106,71 +127,75 @@ func processAssets(shutdownCtx context.Context, graphQLClient *api.PlatformGraph
 		// Format all the asset outputs to fit the format of the local benchmark service
 		engineOutputs, newIDToEngineID := formatBenchmarkEngineOutputsPayload(tdoAssets)
 
+		fmt.Printf("=============== %v", engineOutputs)
+		fmt.Printf("+++++++++++++++ %v", newIDToEngineID)
+
 		// Prepare the benchmark service payload
-		benchmarkServicePayload := BenchmarkServicePostPayload{
-			EngineOutputs: engineOutputs,
-			GroundTruth:   tdoAssets.baselineAsset.Transcript,
-			TdoID:         TDOID,
-			ScliteFQN:     "sclite",
-		}
+		// benchmarkServicePayload := BenchmarkServicePostPayload{
+		// 	EngineOutputs: engineOutputs,
+		// 	GroundTruth:   tdoAssets.baselineAsset.Transcript,
+		// 	TdoID:         TDOID,
+		// 	ScliteFQN:     "sclite",
+		// }
 
+		// sclite(myAppContext, true, []byte(engineOutputs), []byte(tdoAssets.baselineAsset.Transcript))
 		// TODO: remove callBenchmarkService and use sclite instead
-		resultArray, err := callBenchmarkService(url, &benchmarkServicePayload, myConfig.LocalServiceRetry, enginePayload.Debug)
-		if err != nil {
-			fmt.Printf("[processAssets] [WARNING] Couldn't benchmark due to: %s\n", err)
-			for _, asset := range tdoAssets.assets {
-				failedAssets = append(failedAssets, asset.ID)
-			}
-			continue
-		} else if len(resultArray) == 0 {
-			fmt.Printf("[processAssets] [WARNING] No benchmarks recieved from the benchmark service!")
-			for _, asset := range tdoAssets.assets {
-				failedAssets = append(failedAssets, asset.ID)
-			}
-			continue
-		}
+		// resultArray, err := callBenchmarkService(url, &benchmarkServicePayload, myConfig.LocalServiceRetry, enginePayload.Debug)
+		// if err != nil {
+		// 	fmt.Printf("[processAssets] [WARNING] Couldn't benchmark due to: %s\n", err)
+		// 	for _, asset := range tdoAssets.assets {
+		// 		failedAssets = append(failedAssets, asset.ID)
+		// 	}
+		// 	continue
+		// } else if len(resultArray) == 0 {
+		// 	fmt.Printf("[processAssets] [WARNING] No benchmarks recieved from the benchmark service!")
+		// 	for _, asset := range tdoAssets.assets {
+		// 		failedAssets = append(failedAssets, asset.ID)
+		// 	}
+		// 	continue
+		// }
 
-		for _, result := range resultArray {
-			engineID := newIDToEngineID[result.EngineID]
+		// for _, result := range resultArray {
+		// 	engineID := newIDToEngineID[result.EngineID]
 
-			newSDO := AssetBenchmarkSDODataForTranscription{
-				BenchmarkJobID:  enginePayload.JobID,
-				BenchmarkTaskID: enginePayload.TaskID,
-				TDOID:           TDOID,
-				AssetID:         result.AssetID,
-				ModelID:         result.ModelID,
-				EngineID:        engineID,
-				OrganizationID:  enginePayload.OrganizationID,
-				BaselineAssetID: tdoAssets.baselineAsset.ID,
-				EngineName:      result.EngineName,
-				DeployedVersion: result.DeployedVersion,
-				// Metrics
-				Accuracy:      result.Accuracy,
-				Precision:     result.Precision,
-				Recall:        result.Recall,
-				WordErrorRate: result.WER,
-			}
+		// 	newSDO := AssetBenchmarkSDODataForTranscription{
+		// 		BenchmarkJobID:  enginePayload.JobID,
+		// 		BenchmarkTaskID: enginePayload.TaskID,
+		// 		TDOID:           TDOID,
+		// 		AssetID:         result.AssetID,
+		// 		ModelID:         result.ModelID,
+		// 		EngineID:        engineID,
+		// 		OrganizationID:  enginePayload.OrganizationID,
+		// 		BaselineAssetID: tdoAssets.baselineAsset.ID,
+		// 		EngineName:      result.EngineName,
+		// 		DeployedVersion: result.DeployedVersion,
+		// 		// Metrics
+		// 		Accuracy:      result.Accuracy,
+		// 		Precision:     result.Precision,
+		// 		Recall:        result.Recall,
+		// 		WordErrorRate: result.WER,
+		// 	}
 
-			// If a training SDO was passed, include the reference
-			if enginePayload.TaskPayload.TrainingWorkflowSDOID != "" && enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID != "" {
-				newSDO.TrainingSDO = &SDOReference{
-					ID:       enginePayload.TaskPayload.TrainingWorkflowSDOID,
-					SchemaID: enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID,
-				}
-			}
+		// 	// If a training SDO was passed, include the reference
+		// 	if enginePayload.TaskPayload.TrainingWorkflowSDOID != "" && enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID != "" {
+		// 		newSDO.TrainingSDO = &SDOReference{
+		// 			ID:       enginePayload.TaskPayload.TrainingWorkflowSDOID,
+		// 			SchemaID: enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID,
+		// 		}
+		// 	}
 
-			if !enginePayload.Test {
-				sdo, err := graphQLClient.CreateSDO(shutdownCtx, benchmarkSchemaID, newSDO)
-				if err != nil {
-					failedAssets = append(failedAssets, newSDO.AssetID)
-					fmt.Printf("[processAssets] [ERROR] Error creating the benchmark SDO for asset(%s) due to: %s", newSDO.AssetID, err)
-				} else {
-					fmt.Printf("[processAssets] Benchmark SDO for asset(%s) successfully created with ID: %s\n", newSDO.AssetID, sdo.ID)
-				}
-			} else {
-				fmt.Printf("[processAssets] This is a test, but the SDO would have been created...SDO: %+v\n", newSDO)
-			}
-		}
+		// 	if !enginePayload.Test {
+		// 		sdo, err := graphQLClient.CreateSDO(shutdownCtx, benchmarkSchemaID, newSDO)
+		// 		if err != nil {
+		// 			failedAssets = append(failedAssets, newSDO.AssetID)
+		// 			fmt.Printf("[processAssets] [ERROR] Error creating the benchmark SDO for asset(%s) due to: %s", newSDO.AssetID, err)
+		// 		} else {
+		// 			fmt.Printf("[processAssets] Benchmark SDO for asset(%s) successfully created with ID: %s\n", newSDO.AssetID, sdo.ID)
+		// 		}
+		// 	} else {
+		// 		fmt.Printf("[processAssets] This is a test, but the SDO would have been created...SDO: %+v\n", newSDO)
+		// 	}
+		// }
 	}
 
 	if len(failedAssets) > 0 || len(failedBaselineAssets) > 0 {
@@ -328,6 +353,43 @@ func compileAsset(asset *api.Asset) (*api.Asset, error) {
 	}
 
 	return asset, nil
+}
+
+func getRectangleFromPoints(points []api.Point) api.Rectangle {
+	if len(points) < 4 {
+		lenArr := 4 - len(points)
+		for i := 0; i < lenArr; i++ {
+			points = append(points, api.Point{
+				X: 0,
+				Y: 0,
+			})
+		}
+	}
+
+	// get Top left - Bottom right
+	tl := points[0]
+	br := points[0]
+	for i := 1; i < 4; i++ {
+		point := points[i]
+
+		// TL
+		if point.Y > tl.Y && point.X <= tl.X {
+			tl = point
+		}
+
+		// BR
+		if point.X > br.X && point.Y <= br.Y {
+			br = point
+		}
+	}
+
+	// New Rectangle
+	rectangle := api.Rectangle{TL: tl, BR: br}
+	rectangle.Width = math.Abs(rectangle.BR.X - rectangle.TL.X)
+	rectangle.Height = math.Abs(rectangle.TL.Y - rectangle.BR.Y)
+	rectangle.S = rectangle.Width * rectangle.Height
+
+	return rectangle
 }
 
 // formatBenchmarkEngineOutputsPayload compiles the data into a format accepted by the benchmark service.

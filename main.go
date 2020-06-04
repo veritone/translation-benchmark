@@ -1,30 +1,20 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
-	"os/signal"
 	"runtime"
 	"strconv"
-	"strings"
-	"sync"
-	"syscall"
 	"time"
 
 	"github.com/urfave/cli"
-
 	"github.com/veritone/src-training-workflow/platform"
-	"github.com/veritone/src-training-workflow/platform/persistence"
 	"github.com/veritone/translation-benchmark/api"
 )
 
@@ -34,24 +24,22 @@ const (
 	// SigTermExitCode term exit code
 	SigTermExitCode = 143
 	// BenchmarkEngineID this engine ID
-	benchmarkEngineID     = "2517dfe9-b70d-43b1-bc1b-800618190d92"
-	categoryTranslationID = "3b2b2ff8-44aa-4db4-9b71-ff96c3bf5923"
+	benchmarkEngineID         = "6181fd6e-c6e1-44e8-afd3-75b1a8babd08"
+	categoryTranscriptionID   = "67cd4dd0-2f75-445d-a6f0-2f297d6cd182"
+	categoryFacialDetectionID = "6faad6b7-0837-45f9-b161-2f6bf31b7a07"
+	categoryTranslationID     = "3b2b2ff8-44aa-4db4-9b71-ff96c3bf5923"
 
 	// Default MinPrecision: 40
 	defaultMinPrecision = float64(40)
 	serviceName         = "translation-benchmark"
 )
 
-type UpdateStatus struct {
-	Status         string `json:"status,omitempty"`
-	InfoMsg        string `json:"infoMsg,omitempty"`
-	FailureReason  string `json:"failureReason,omitempty"`
-	FailureMessage string `json:"failureMsg,omitempty"`
-}
-
-type Response struct {
-	EstimatedProcessingTimeInSeconds int `json:"estimatedProcessingTimeInSeconds,omitempty"`
-}
+var (
+	myServer        *httptest.Server
+	myConfig        = ManagerConfig{}
+	myEnginePayload = BenchmarkEnginePayload{}
+	myAppContext    = AppContext{}
+)
 
 func main() {
 	fmt.Println("Starting engine server host...")
@@ -107,7 +95,7 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Response for the end func
-		resp := Response{
+		resp := &api.Response{
 			EstimatedProcessingTimeInSeconds: maxTTL,
 		}
 
@@ -160,9 +148,9 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// set up stuff for shutting down handling due to signal or errors
-		gracefulShutdownCtx, gracefulShutdownCancelFn := context.WithCancel(context.Background())
-		var jobProcessingWaitGroup sync.WaitGroup
-		go listenForSignals(gracefulShutdownCancelFn, &jobProcessingWaitGroup)
+		gracefulShutdownCtx, _ := context.WithCancel(context.Background())
+		// var jobProcessingWaitGroup sync.WaitGroup
+		// go listenForSignals(gracefulShutdownCancelFn, &jobProcessingWaitGroup)
 
 		err = invokeService(gracefulShutdownCtx, myAppContext.LocalGraphQLClient, &myEnginePayload)
 		if err != nil {
@@ -177,50 +165,68 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Update task status
-		updateTaskStatusV3F("complete", "", "", "", heartbeatWebhook)
+		updateTaskStatusV3F("complete", "Engine run successfully", "", "", heartbeatWebhook)
 
 		return
 	}
 }
 
-func updateTaskStatusV3F(taskStatus, infoMsg, failureMessage, failureReason, webhook string) {
-	fmt.Println(fmt.Sprintf("(updateTaskStatusV3F) updating task status to %s:", taskStatus))
-	if err := updateTaskStatus(taskStatus, infoMsg, failureMessage, failureReason, webhook); err != nil {
-		fmt.Println("(updateTaskStatusV3F) error:", err)
+func updateTaskStatusV3F(taskStatus, infoMsg, failureMessage, failureReason, webhook string) error {
+	updateStatus := &api.UpdateStatus{
+		Status:         taskStatus,
+		InfoMsg:        infoMsg,
+		FailureReason:  failureReason,
+		FailureMessage: failureMessage,
 	}
+	b, err := json.Marshal(updateStatus)
+	if err != nil {
+		fmt.Println("error:", err)
+		return err
+	}
+
+	req, err := http.NewRequest("POST", webhook, bytes.NewBuffer(b))
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	fmt.Printf("Success when UpdateTask to %s with status: %s, InfoMsg: %s, FailureReason: %s, FailureMessage: %s", resp.Status, taskStatus, infoMsg, failureReason, failureMessage)
+	return nil
 }
 
-// listenForSignals waits for SIGINT or SIGTERM to be captured.
-// When caught, it shuts down gracefully and exits with the proper code.
-func listenForSignals(cancelFunc context.CancelFunc, jobProcessingWaitGroup *sync.WaitGroup) {
-	// Block until signal is caught
-	notifyChan := make(chan os.Signal, 2)
-	signal.Notify(notifyChan, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-notifyChan
-	exitCode := 1
-	switch sig {
-	case syscall.SIGINT:
-		exitCode = SigIntExitCode
-	case syscall.SIGTERM:
-		exitCode = SigTermExitCode
+func loadEngineWrapperConfigFile() ManagerConfig {
+	res := ManagerConfig{
+		LocalServiceURL:   "http://localhost:35000",
+		LocalServiceCmd:   "python3 /app/main.py --port 35000",
+		LocalServiceRetry: 5}
+	configFile := os.Getenv("CONFIG_FILE")
+	if configFile != "" {
+		reader, err := os.Open(configFile)
+		if err == nil {
+			defer reader.Close()
+			err = json.NewDecoder(reader).Decode(&res)
+		}
+	} else {
+		reader, err := os.Open("./config.json")
+		if err == nil {
+			defer reader.Close()
+			err = json.NewDecoder(reader).Decode(&res)
+		}
 	}
-	// Emit shutdown event, shutdown gracefully, exit with proper code
-	fmt.Println("Signal Shutdown")
-	gracefulShutdown(exitCode, cancelFunc, jobProcessingWaitGroup)
-
-}
-
-// gracefulShutdown cleans up anything worth cleaning before exiting
-func gracefulShutdown(exitCode int, cancelFunc context.CancelFunc, jobProcessingWaitGroup *sync.WaitGroup) {
-	fmt.Printf("Shutting down gracefully\n")
-	// This call triggers the job processing worker to finish off its remaining work.
-	cancelFunc()
-	// When the job processing worker finishes off its remaining work, it will notify this goroutine here
-	// and allow it to continue.
-
-	jobProcessingWaitGroup.Wait()
-
-	if exitCode != 0 {
-		os.Exit(exitCode)
+	// still need to read from command line
+	if localServiceCmd := os.Getenv("LOCAL_SERVICE_CMD"); localServiceCmd != "" {
+		res.LocalServiceCmd = localServiceCmd
 	}
+	if localServiceURL := os.Getenv("LOCAL_SERVICE_URL"); localServiceURL != "" {
+		res.LocalServiceURL = localServiceURL
+	}
+	if benchmarkID := os.Getenv("ENGINE_ID"); benchmarkID != "" {
+		res.EngineID = benchmarkID
+	} else {
+		res.EngineID = benchmarkEngineID
+	}
+
+	return res
 }

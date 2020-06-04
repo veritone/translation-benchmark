@@ -69,7 +69,7 @@ build-engine-template:
 	go get -u github.com/veritone/src-training-workflow/engine-template
 	make -C $(GOPATH)/src/github.com/veritone/src-training-workflow/engine-template build-ubuntu
 
-build-docker: test gen-build-manifest build-sclite build-engine-template
+build-docker: build-sclite
 	docker build -t $(BINARY_NAME) --build-arg GITHUB_ACCESS_TOKEN=$(GITHUB_ACCESS_TOKEN) .
 
 build-docker-use-engine-template-without-test: gen-build-manifest build-sclite build-engine-template
