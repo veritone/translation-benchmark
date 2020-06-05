@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/urfave/cli"
-	"github.com/veritone/src-training-workflow/platform"
 	"github.com/veritone/translation-benchmark/api"
 )
 
@@ -110,6 +109,7 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		myConfig = loadEngineWrapperConfigFile()
 		myConfig.APIOptions.Token = myEnginePayload.Token
 		myConfig.APIOptions.VeritoneApiBaseUrl = myEnginePayload.VeritoneAPIBaseURL
+		myConfig.APIOptions.TimeoutDurationStr = "60s"
 		// TODO: confirm before remove local api
 		myConfig.LocalAPIOptions.Token = myEnginePayload.Token
 		myConfig.LocalAPIOptions.VeritoneAPIBaseURL = myEnginePayload.VeritoneAPIBaseURL
@@ -134,11 +134,17 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		myAppContext.Config = myConfig
 
 		// let's get the API
-		myAppContext.GraphQLClient, err = platform.NewCoreApi(myConfig.APIOptions)
-		if err != nil {
-			updateTaskStatusV3F("failed", "", "(GraphQLClient) Failed to get connection to Veritone platform: "+err.Error(), "invalid_data", heartbeatWebhook)
-			return
-		}
+		// myAppContext.GraphQLClient, err = platform.NewCoreApi(myConfig.APIOptions)
+		// if err != nil {
+		// 	updateTaskStatusV3F("failed", "", "(GraphQLClient) Failed to get connection to Veritone platform: "+err.Error(), "invalid_data", heartbeatWebhook)
+		// 	return
+		// }
+		// myAppContext.GraphqlAPIClient, err = GraphqlAPI.New(config.GraphQLConfig)
+		// if err != nil {
+		// 	// ctx.Logger.Debug("%+v\n", err)
+		// 	updateTaskStatusV3F("failed", "", err.Error(), "internal_error", heartbeatWebhook)
+		// 	return
+		// }
 
 		// Local api implementation vs. platform api from src-training-workflow...this is so you don't have to make changes in src-training-workflow for things used only here
 		myAppContext.LocalGraphQLClient, err = api.NewCoreAPI(myConfig.LocalAPIOptions)
@@ -169,6 +175,7 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+	myAppContext.App.Run(os.Args)
 }
 
 func updateTaskStatusV3F(taskStatus, infoMsg, failureMessage, failureReason, webhook string) error {

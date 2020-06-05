@@ -43,6 +43,12 @@ type results struct {
 	WordErrorRate float64 `json:"wordErrorRate"`
 
 	Words []word `json:"words,omitempty"`
+
+	EngineID        string `json:"engineId"`
+	EngineName      string `json:"engineName"`
+	AssetID         string `json:"assetId"`
+	ModelID         string `json:"modelId"`
+	DeployedVersion int64  `json:"deployedVersion"`
 }
 type word struct {
 	Action     string `json:"action,omitempty"`
@@ -109,15 +115,39 @@ func processAssets(shutdownCtx context.Context, graphQLClient *api.PlatformGraph
 	// Fetch the baseline asset for each baseline in the array and add it to the map
 
 	// failedBaselineAssets - Track the list of failed baseline assets
-	tdoAssetMap, failedBaselineAssets := gatherBaselineAssets(shutdownCtx, graphQLClient, enginePayload.TaskID, tdoAssetMap, baselineAssetIDs)
+	baseLineAsset, failedBaselineAssets := gatherBaselineAssets(shutdownCtx, graphQLClient, enginePayload.TaskID, tdoAssetMap, baselineAssetIDs)
 
 	// Benchmark service endpoint
 	// url := myConfig.LocalServiceURL + "/benchmark"
 	// Run the benchmark service individually for each TDO ID
 	for TDOID, tdoAssets := range tdoAssetMap {
 		fmt.Printf("[processAssets] Benchmarking assets for TDOID %s\n", TDOID)
-		if tdoAssets.baselineAsset == nil {
+		if baseLineAsset == nil {
 			// must have the baseline asset to perform benchmarking
+			for _, asset := range tdoAssets.assets {
+				failedAssets = append(failedAssets, asset.ID)
+			}
+			continue
+		}
+		var resultArray []*results
+		for _, asset := range tdoAssets.assets {
+			// asset.Transcript
+			fmt.Println("-------------------", asset.Transcript)
+			fmt.Println("+++++++++++++++++++", baseLineAsset.Transcript)
+			result, err := sclite(context.Background(), true, []byte(asset.Transcript), []byte(baseLineAsset.Transcript))
+			if err != nil {
+				fmt.Printf("[processAssets] [WARNING] Couldn't benchmark due to: %s\n", err)
+				failedAssets = append(failedAssets, asset.ID)
+				continue
+			}
+			result.EngineID = asset.SourceData.Engine.ID
+			result.AssetID = asset.ID
+			result.ModelID = asset.ModelID
+			result.EngineName = asset.SourceData.Engine.Name
+			result.DeployedVersion = asset.SourceData.Engine.DeployedVersion
+			resultArray = append(resultArray, result)
+		}
+		if len(resultArray) == 0 {
 			for _, asset := range tdoAssets.assets {
 				failedAssets = append(failedAssets, asset.ID)
 			}
@@ -125,10 +155,11 @@ func processAssets(shutdownCtx context.Context, graphQLClient *api.PlatformGraph
 		}
 
 		// Format all the asset outputs to fit the format of the local benchmark service
-		engineOutputs, newIDToEngineID := formatBenchmarkEngineOutputsPayload(tdoAssets)
-
-		fmt.Printf("=============== %v", engineOutputs)
-		fmt.Printf("+++++++++++++++ %v", newIDToEngineID)
+		// engineOutputs, newIDToEngineID := formatBenchmarkEngineOutputsPayload(tdoAssets)
+		// a, _ := json.Marshal(tdoAssets)
+		// fmt.Printf("--------------- %+v", tdoAssets)
+		// fmt.Printf("=============== %+v", baseLineAsset.Transcript)
+		// fmt.Printf("+++++++++++++++ %+v", newIDToEngineID)
 
 		// Prepare the benchmark service payload
 		// benchmarkServicePayload := BenchmarkServicePostPayload{
@@ -155,47 +186,47 @@ func processAssets(shutdownCtx context.Context, graphQLClient *api.PlatformGraph
 		// 	continue
 		// }
 
-		// for _, result := range resultArray {
-		// 	engineID := newIDToEngineID[result.EngineID]
+		for _, result := range resultArray {
 
-		// 	newSDO := AssetBenchmarkSDODataForTranscription{
-		// 		BenchmarkJobID:  enginePayload.JobID,
-		// 		BenchmarkTaskID: enginePayload.TaskID,
-		// 		TDOID:           TDOID,
-		// 		AssetID:         result.AssetID,
-		// 		ModelID:         result.ModelID,
-		// 		EngineID:        engineID,
-		// 		OrganizationID:  enginePayload.OrganizationID,
-		// 		BaselineAssetID: tdoAssets.baselineAsset.ID,
-		// 		EngineName:      result.EngineName,
-		// 		DeployedVersion: result.DeployedVersion,
-		// 		// Metrics
-		// 		Accuracy:      result.Accuracy,
-		// 		Precision:     result.Precision,
-		// 		Recall:        result.Recall,
-		// 		WordErrorRate: result.WER,
-		// 	}
+			newSDO := AssetBenchmarkSDODataForTranscription{
+				BenchmarkJobID:  enginePayload.JobID,
+				BenchmarkTaskID: enginePayload.TaskID,
+				TDOID:           TDOID,
+				AssetID:         result.AssetID,
+				ModelID:         result.ModelID,
+				EngineID:        result.EngineID,
+				OrganizationID:  enginePayload.OrganizationID,
+				BaselineAssetID: tdoAssets.baselineAsset.ID,
+				EngineName:      result.EngineName,
+				DeployedVersion: result.DeployedVersion,
+				// Metrics
+				Accuracy:      result.Accuracy,
+				Precision:     result.Precision,
+				Recall:        result.Recall,
+				WordErrorRate: result.WordErrorRate,
+				Words:         result.Words,
+			}
 
-		// 	// If a training SDO was passed, include the reference
-		// 	if enginePayload.TaskPayload.TrainingWorkflowSDOID != "" && enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID != "" {
-		// 		newSDO.TrainingSDO = &SDOReference{
-		// 			ID:       enginePayload.TaskPayload.TrainingWorkflowSDOID,
-		// 			SchemaID: enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID,
-		// 		}
-		// 	}
+			// If a training SDO was passed, include the reference
+			if enginePayload.TaskPayload.TrainingWorkflowSDOID != "" && enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID != "" {
+				newSDO.TrainingSDO = &SDOReference{
+					ID:       enginePayload.TaskPayload.TrainingWorkflowSDOID,
+					SchemaID: enginePayload.TaskPayload.TrainingWorkflowSDOSchemaID,
+				}
+			}
 
-		// 	if !enginePayload.Test {
-		// 		sdo, err := graphQLClient.CreateSDO(shutdownCtx, benchmarkSchemaID, newSDO)
-		// 		if err != nil {
-		// 			failedAssets = append(failedAssets, newSDO.AssetID)
-		// 			fmt.Printf("[processAssets] [ERROR] Error creating the benchmark SDO for asset(%s) due to: %s", newSDO.AssetID, err)
-		// 		} else {
-		// 			fmt.Printf("[processAssets] Benchmark SDO for asset(%s) successfully created with ID: %s\n", newSDO.AssetID, sdo.ID)
-		// 		}
-		// 	} else {
-		// 		fmt.Printf("[processAssets] This is a test, but the SDO would have been created...SDO: %+v\n", newSDO)
-		// 	}
-		// }
+			if !enginePayload.Test {
+				sdo, err := graphQLClient.CreateSDO(shutdownCtx, benchmarkSchemaID, newSDO)
+				if err != nil {
+					failedAssets = append(failedAssets, newSDO.AssetID)
+					fmt.Printf("[processAssets] [ERROR] Error creating the benchmark SDO for asset(%s) due to: %s", newSDO.AssetID, err)
+				} else {
+					fmt.Printf("[processAssets] Benchmark SDO for asset(%s) successfully created with ID: %s\n", newSDO.AssetID, sdo.ID)
+				}
+			} else {
+				fmt.Printf("[processAssets] This is a test, but the SDO would have been created...SDO: %+v\n", newSDO)
+			}
+		}
 	}
 
 	if len(failedAssets) > 0 || len(failedBaselineAssets) > 0 {
@@ -261,47 +292,42 @@ func gatherAssetsByTDO(shutdownCtx context.Context, graphQLClient *api.PlatformG
 }
 
 // gatherBaselineAssets Gather the baseline asset data and add them to the tdoAssetMap according to its corresponding TDOID
-func gatherBaselineAssets(shutdownCtx context.Context, graphQLClient *api.PlatformGraphQLClient, taskID string, tdoAssetMap map[string]*TDOAssets, baselineAssetIDs []string) (map[string]*TDOAssets, []string) {
+func gatherBaselineAssets(shutdownCtx context.Context, graphQLClient *api.PlatformGraphQLClient, taskID string, tdoAssetMap map[string]*TDOAssets, baselineAssetIDs []string) (*api.Asset, string) {
 	fmt.Printf("[gatherBaselineAssets] Gathering baseline assets from the payload and organizing them by TDO\n")
-	failedBaselineAssets := make([]string, 0)
-	for _, baselineAssetID := range baselineAssetIDs {
-		baselineAsset, err := graphQLClient.FetchAsset(shutdownCtx, baselineAssetID)
+	var failedBaselineAssets string
+	baselineAssetID := baselineAssetIDs[0]
+	baselineAsset, err := graphQLClient.FetchAsset(shutdownCtx, baselineAssetID)
+	if err != nil {
+		failedBaselineAssets = baselineAssetID
+		fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to fetch the baseline asset for assetID(%s) due to: %s", baselineAssetID, err)
+		err := graphQLClient.AppendWarningToTask(shutdownCtx, taskID, baselineAssetID, "asset_unavailable", fmt.Sprintf("Could not fetch baseline asset %s to benchmark.", baselineAssetID))
 		if err != nil {
-			failedBaselineAssets = append(failedBaselineAssets, baselineAssetID)
-			fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to fetch the baseline asset for assetID(%s) due to: %s", baselineAssetID, err)
-			err := graphQLClient.AppendWarningToTask(shutdownCtx, taskID, baselineAssetID, "asset_unavailable", fmt.Sprintf("Could not fetch baseline asset %s to benchmark.", baselineAssetID))
-			if err != nil {
-				fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to update the running task about a failed asset due to: %s", err)
-			}
-			continue
+			fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to update the running task about a failed asset due to: %s", err)
 		}
-
-		// If the TDO asset map doesn't have the TDO associated with this baseline, then that means no assets were gathered in the previous step. Therefore, we should fail this baseline asset.
-		if _, ok := tdoAssetMap[baselineAsset.Container.ID]; !ok {
-			failedBaselineAssets = append(failedBaselineAssets, baselineAssetID)
-			fmt.Printf("[gatherBaselineAssets] [WARNING] The baseline asset(%s) has no other assets to benchmark against\n", baselineAssetID)
-			err := graphQLClient.AppendWarningToTask(shutdownCtx, taskID, baselineAssetID, "asset_unavailable", fmt.Sprintf("Baseline asset %s has no other assets to benchmark against.", baselineAssetID))
-			if err != nil {
-				fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to update the running task about a failed asset due to: %s", err)
-			}
-			continue
-		}
-
-		// Compile the raw transcript and find the model ID if it exists
-		baselineAsset, err = compileAsset(baselineAsset)
-		if err != nil {
-			failedBaselineAssets = append(failedBaselineAssets, baselineAssetID)
-			fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to compile baseline asset(%s) due to: %s\n", baselineAssetID, err)
-			err := graphQLClient.AppendWarningToTask(shutdownCtx, taskID, baselineAssetID, "invalid_transcript_asset", fmt.Sprintf("Baseline %s is not a valid VTN-standard transcript.", baselineAssetID))
-			if err != nil {
-				fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to update the running task about a failed asset due to: %s", err)
-			}
-			continue
-		}
-
-		tdoAssetMap[baselineAsset.Container.ID].baselineAsset = baselineAsset
 	}
-	return tdoAssetMap, failedBaselineAssets
+
+	// If the TDO asset map doesn't have the TDO associated with this baseline, then that means no assets were gathered in the previous step. Therefore, we should fail this baseline asset.
+	if _, ok := tdoAssetMap[baselineAsset.Container.ID]; !ok {
+		failedBaselineAssets = baselineAssetID
+		fmt.Printf("[gatherBaselineAssets] [WARNING] The baseline asset(%s) has no other assets to benchmark against\n", baselineAssetID)
+		err := graphQLClient.AppendWarningToTask(shutdownCtx, taskID, baselineAssetID, "asset_unavailable", fmt.Sprintf("Baseline asset %s has no other assets to benchmark against.", baselineAssetID))
+		if err != nil {
+			fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to update the running task about a failed asset due to: %s", err)
+		}
+	}
+
+	// Compile the raw transcript and find the model ID if it exists
+	baselineAsset, err = compileAsset(baselineAsset)
+	if err != nil {
+		failedBaselineAssets = baselineAssetID
+		fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to compile baseline asset(%s) due to: %s\n", baselineAssetID, err)
+		err := graphQLClient.AppendWarningToTask(shutdownCtx, taskID, baselineAssetID, "invalid_transcript_asset", fmt.Sprintf("Baseline %s is not a valid VTN-standard transcript.", baselineAssetID))
+		if err != nil {
+			fmt.Printf("[gatherBaselineAssets] [WARNING] Failed to update the running task about a failed asset due to: %s", err)
+		}
+	}
+
+	return baselineAsset, failedBaselineAssets
 }
 
 // compileAsset Compile the provided asset to have the required VTN-standard output as a Golang struct and a string transcript.
@@ -322,7 +348,7 @@ func compileAsset(asset *api.Asset) (*api.Asset, error) {
 	}
 
 	// convert to a string transcript
-	if asset.SourceData.Engine.CategoryID == "" || asset.SourceData.Engine.CategoryID == categoryTranslationID {
+	if asset.SourceData.Engine.CategoryID == "" || asset.SourceData.Engine.CategoryID == categoryTranscriptionID {
 		var transcript string
 		for _, serie := range output.Series {
 			for _, word := range serie.Words {

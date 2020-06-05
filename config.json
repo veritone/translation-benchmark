@@ -1,0 +1,29 @@
+{
+	"localService":"/app/transcription-benchmark",
+	"localServiceUrl":"http://localhost:35000",
+	"localServiceRetry":5,
+	"messaging": {
+		"kafka": {
+			"brokers": ["kafka-green-1.aws-prod-rt.veritone.com:9092"],
+			"producerMaxRetries": 10,
+			"producerTimeout": "10s"
+		}
+	},
+	"api": {
+		"veritoneApiBaseUrl": "https://api.veritone.com",
+		"token": "task-insert-into-index:6b2559ad0aee4804a1ec9de975533e4eb06ba331acff4639a438bdb6d8615e95",
+		"timeoutDurationStr": "10s"
+	},
+	"localApi": {
+		"veritoneApiBaseUrl": "https://api.veritone.com",
+		"token": "task-insert-into-index:6b2559ad0aee4804a1ec9de975533e4eb06ba331acff4639a438bdb6d8615e95",
+		"timeoutDurationStr": "10s"
+	},
+	"dataRegistryIds":{
+		"transcription":"219a8cc5-60fc-4c89-947a-71316bd39c75",
+		"faceDetection":"b098268f-9c67-4340-9c4f-36d8f048cc40",
+		"translation":"3076c6ba-c168-44b0-8684-36550b8fc3bb",
+		"faceDetection_for_stage":"32f991ff-0af7-4da2-8cd0-211c9a77a059",
+		"faceDetection_for_prod":"b098268f-9c67-4340-9c4f-36d8f048cc40"
+	}
+}

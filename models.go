@@ -129,6 +129,7 @@ type AssetBenchmarkSDODataForTranscription struct {
 	WordErrorRate float64 `json:"wordErrorRate"`
 	// For SRC Training Workflow
 	TrainingSDO *SDOReference `json:"trainingSdo,omitempty"`
+	Words       []word        `json:"word"`
 }
 
 // AssetBenchmarkSDODataForFaceDetection the asset benchmark SDO object

@@ -4,10 +4,25 @@ import (
 	"time"
 
 	"github.com/urfave/cli"
+	GraphqlAPI "github.com/veritone/graphql-client-go"
 	"github.com/veritone/src-training-workflow/platform"
 	"github.com/veritone/src-training-workflow/platform/persistence"
 	"github.com/veritone/translation-benchmark/api"
 )
+
+type Config struct {
+	PrometheusPort   int                      `json:"prometheusPort"`
+	LogFormat        string                   `json:"logFormat"`
+	LogLevel         string                   `json:"logLevel"`
+	EngineID         string                   `json:"engineId"`
+	EngineInstanceID string                   `json:"engineInstanceId"`
+	MaxConcurrency   int                      `json:"maxConcurrency"`
+	MaxWorkersCount  int                      `json:"maxWorkersCount"`
+	VeritoneBaseUri  string                   `json:"veritoneBaseUri"`
+	TTLinSec         time.Duration            `json:"ttl"`
+	GraphQLConfig    GraphqlAPI.GraphqlConfig `json:"graphql-api"`
+	TemporaryTxt     string                   `json:"tempTxt"`
+}
 
 // ManagerConfig config
 type ManagerConfig struct {

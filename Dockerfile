@@ -1,19 +1,19 @@
 ## Building the engine wrapper
 FROM veritone/aiware-engine-toolkit as vt-engine-toolkit
 
-FROM golang:1.12.0 as builder
-ARG GITHUB_ACCESS_TOKEN
-WORKDIR /
-RUN apt-get update && apt-get --allow-unauthenticated install -y \
-      git \
-      bash
+# FROM golang:1.12.0 as builder
+# ARG GITHUB_ACCESS_TOKEN
+# WORKDIR /
+# RUN apt-get update && apt-get --allow-unauthenticated install -y \
+#       git \
+#       bash
 
-# RUN git config --global url."https://${GITHUB_ACCESS_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/" && \
-#     go env && go list all | grep cover
-COPY .netrc /root/.netrc
-ADD . /go/src/github.com/veritone/translation-benchmark
-WORKDIR /go/src/github.com/veritone/translation-benchmark
-RUN GOPATH=/go make go-build-all
+# # RUN git config --global url."https://${GITHUB_ACCESS_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/" && \
+# #     go env && go list all | grep cover
+# COPY .netrc /root/.netrc
+# ADD . /go/src/github.com/veritone/translation-benchmark
+# WORKDIR /go/src/github.com/veritone/translation-benchmark
+# RUN GOPATH=/go make go-build-all
 
 # FROM engine-template:ubuntu as engine_template
 FROM sclite as sclite
@@ -25,9 +25,11 @@ LABEL git.commit=$GIT_COMMIT
 LABEL BUILD_DATE=$BUILD_DATE
 
 # COPY --from=engine_template /app/engine-template /app/
-COPY --from=builder /go/src/github.com/veritone/translation-benchmark/benchmark-engines-rt /app/
+# COPY --from=builder /go/src/github.com/veritone/translation-benchmark/benchmark-engines-rt /app/
 COPY --from=sclite /SCTK/bin/sclite /app/sclite
 
+RUN apt-get update
+RUN apt-get install -y ca-certificates
 # RUN apt-get update && apt-get install -y \
 #             python3 \
 #             python3-dev \
@@ -64,6 +66,7 @@ COPY --from=vt-engine-toolkit /opt/aiware/engine /opt/aiware/engine
 RUN chmod +x /opt/aiware/engine
 ENV VERITONE_WEBHOOK_READY="http://0.0.0.0:8080/readyz"
 ENV VERITONE_WEBHOOK_PROCESS="http://0.0.0.0:8080/process"
+COPY benchmark-engines-rt /app/
 
 # ENTRYPOINT ["/opt/aiware/engine", "/app/engine-template"]
 ENTRYPOINT ["/opt/aiware/engine", "/app/benchmark-engines-rt"]
